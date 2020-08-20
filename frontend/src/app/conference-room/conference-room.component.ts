@@ -25,6 +25,8 @@ export class ConferenceRoomComponent implements OnInit {
     // this.socketService.setupSocketConnection();
     // this.allSocketOperation();
 
+
+    this.startSocket();
     var mydiv = document.getElementById('myDiv123');
     mydiv.innerHTML += '<video class="local-video mirror-mode" #video id=\'local\' volume=\'0\' autoplay muted>';
     var video = document.getElementById('local');
@@ -39,7 +41,6 @@ export class ConferenceRoomComponent implements OnInit {
         })
     }
 
-    this.startSocket();
   }
 
   startSocket() {
@@ -70,13 +71,13 @@ export class ConferenceRoomComponent implements OnInit {
 
       that.socket.on('ice candidates', async (data) => {
         console.log("ice candidates", data);
-        data.candidate ? that.participants[data.sender].addIceCandidate(new RTCIceCandidate(data.candidate)) : '';
+        data.candidate ? await that.participants[data.sender].addIceCandidate(new RTCIceCandidate(data.candidate)) : '';
       });
 
       that.socket.on('sdp', async (data) => {
         console.log("sdp", data);
         if (data.description.type === 'offer') {
-          data.description ? that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description)) : '';
+          data.description ? await that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description)) : '';
 
           const video = document.getElementById('local');
           that.getUserFullMedia().then(async (stream) => {
@@ -91,9 +92,9 @@ export class ConferenceRoomComponent implements OnInit {
               that.participants[data.sender].addTrack(track, stream);
             });
 
-            let answer = that.participants[data.sender].createAnswer();
+            let answer = await that.participants[data.sender].createAnswer();
 
-            that.participants[data.sender].setLocalDescription(answer);
+            await that.participants[data.sender].setLocalDescription(answer);
 
             that.socket.emit('sdp', {
               description: that.participants[data.sender].localDescription,
@@ -104,7 +105,7 @@ export class ConferenceRoomComponent implements OnInit {
             console.error(e);
           });
         } else if (data.description.type === 'answer') {
-          that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description));
+          await that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description));
         }
       });
 
@@ -145,9 +146,9 @@ export class ConferenceRoomComponent implements OnInit {
     //create offer
     if (createOffer) {
       this.participants[partnerName].onnegotiationneeded = async () => {
-        let offer = this.participants[partnerName].createOffer();
-
-        this.participants[partnerName].setLocalDescription(offer);
+        let offer = await this.participants[partnerName].createOffer();
+        console.log('offer', offer);
+        await this.participants[partnerName].setLocalDescription(offer);
 
         socket.emit('sdp', {
           description: this.participants[partnerName].localDescription,

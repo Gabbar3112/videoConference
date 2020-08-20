@@ -1,16 +1,16 @@
-let express = require( 'express' );
+let express = require('express');
 let app = express();
-let server = require( 'http' ).Server( app );
-let io = require( 'socket.io' )( server );
-let stream = require( './ws/stream' );
+let server = require('http').Server(app);
+let io = require('socket.io')(server);
+let stream = require('./ws/stream');
 
 app.get('/', (req, res) => {
     res.send('<h1>Hey Socket.io</h1>');
 });
 
-io.of( '/stream' ).on( 'connection', stream );
+io.of('/stream').on('connection', stream);
 
-server.listen( 3002 );
+server.listen(3002);
 
 server.on('listening', onListening);
 
