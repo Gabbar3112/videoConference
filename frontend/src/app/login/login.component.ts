@@ -1,5 +1,5 @@
 import {Component, OnInit} from '@angular/core';
-import {Router} from "@angular/router";
+import {ActivatedRoute, Router} from "@angular/router";
 
 @Component({
   selector: 'app-login',
@@ -12,11 +12,20 @@ export class LoginComponent implements OnInit {
     roomName: '',
     yourName: '',
   };
+  showRoomField = true;
 
-  constructor(private router: Router) {
+  constructor(private router: Router,
+              private activatedRoute: ActivatedRoute) {
   }
 
   ngOnInit(): void {
+    this.activatedRoute.queryParams.subscribe(params => {
+      const roomName = params['roomName'];
+      console.log(roomName);
+      if (roomName !== undefined) {
+        this.showRoomField = false;
+      }
+    });
   }
 
   createRoom() {

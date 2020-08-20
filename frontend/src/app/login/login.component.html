@@ -10,7 +10,7 @@
 
     <!-- Login Form -->
     <form>
-      <input type="text" id="room-name" required [(ngModel)]="room.roomName" class="fadeIn second" name="login" placeholder="Room Name">
+      <input *ngIf="showRoomField" type="text" id="room-name" required [(ngModel)]="room.roomName" class="fadeIn second" name="login" placeholder="Room Name">
       <input type="text" id="your-name" required [(ngModel)]="room.yourName" class="fadeIn third" name="login" placeholder="Your Name">
       <input type="submit" id="create-room" (click)="createRoom()" class="fadeIn fourth" value="Create Room">
     </form>
