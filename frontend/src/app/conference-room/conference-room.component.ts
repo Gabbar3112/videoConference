@@ -1,7 +1,9 @@
 import {Component, OnInit, ViewChild} from '@angular/core';
-import {environment} from "../../environments/environment";
+import {environment} from '../../environments/environment';
 import * as io from 'socket.io-client';
-import * as moment from 'moment'
+import * as moment from 'moment';
+
+declare var MediaRecorder: any;
 
 @Component({
   selector: 'app-conference-room',
@@ -9,47 +11,51 @@ import * as moment from 'moment'
   styleUrls: ['./conference-room.component.css']
 })
 export class ConferenceRoomComponent implements OnInit {
-  @ViewChild('video') video:any;
+  @ViewChild('video') video: any;
 
   participants: any = [];
+  recordedStream: any = [];
   myStream: any = '';
   screen: any = '';
-  abc: any;
+  localStream: any = '';
+  mediaRecorder: any;
   socket;
-  mediaSource = new MediaSource();
+  username: any = '';
+  link = '';
+  room = '';
+  localSocket: any;
 
   constructor() {
   }
 
   ngOnInit(): void {
-    // this.socketService.setupSocketConnection();
-    // this.allSocketOperation();
-
+    this.link = localStorage.getItem('link');
+    this.room = localStorage.getItem('roomName');
+    this.username = localStorage.getItem('userName');
 
     this.startSocket();
-    var mydiv = document.getElementById('myDiv123');
-    mydiv.innerHTML += '<video class="local-video mirror-mode" #video id=\'local\' volume=\'0\' autoplay muted>';
-    var video = document.getElementById('local');
-    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true })
+    const video = document.getElementById('local');
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({video: true, audio: true})
         .then(stream => {
+          this.localStream = stream;
           video.srcObject = (stream);
           video.play();
         })
-        .catch((err)=>{
+        .catch((err) => {
           console.log('err', err);
-        })
+        });
     }
-
+    this.registerClickMethods();
   }
 
+  // socket connecting methods
   startSocket() {
     const that = this;
     this.socket = io(environment.socketUri);
     this.socket.on('connect', () => {
       let socketId = this.socket.io.engine.id;
-      console.log(this.socket.id);
-      console.log('this.socket.io.engine.id', this.socket.io.engine.id);
+      this.localSocket = this.socket;
 
       this.socket.emit('subscribe', {
         room: localStorage.getItem('roomName'),
@@ -57,32 +63,28 @@ export class ConferenceRoomComponent implements OnInit {
       });
 
       that.socket.on('new user', (data) => {
-        console.log("new user", data);
         that.socket.emit('newUserStart', {to: data.socketId, sender: socketId});
         that.participants.push(data.socketId);
         that.init(true, data.socketId, that.socket, socketId);
       });
 
       that.socket.on('newUserStart', (data) => {
-        console.log("newUserStart", data);
         that.participants.push(data.sender);
         that.init(false, data.sender, that.socket, socketId);
       });
 
       that.socket.on('ice candidates', async (data) => {
-        console.log("ice candidates", data);
         data.candidate ? await that.participants[data.sender].addIceCandidate(new RTCIceCandidate(data.candidate)) : '';
       });
 
       that.socket.on('sdp', async (data) => {
-        console.log("sdp", data);
         if (data.description.type === 'offer') {
           data.description ? await that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description)) : '';
 
           const video = document.getElementById('local');
           that.getUserFullMedia().then(async (stream) => {
-            if ( !document.getElementById( 'local' ).getAttribute('srcObject')) {
-              that.setLocalStream( stream );
+            if (!document.getElementById('local').getAttribute('srcObject')) {
+              that.setLocalStream(stream);
             }
 
             //save my stream
@@ -121,7 +123,7 @@ export class ConferenceRoomComponent implements OnInit {
 
     if (this.screen && this.screen.getTracks().length) {
       this.screen.getTracks().forEach((track) => {
-        this.participants[partnerName].addTrack(track, this.screen);//should trigger negotiationneeded event
+        this.participants[partnerName].addTrack(track, this.screen);// should trigger negotiationneeded event
       });
     } else if (this.myStream) {
       this.myStream.getTracks().forEach((track) => {
@@ -147,7 +149,6 @@ export class ConferenceRoomComponent implements OnInit {
     if (createOffer) {
       this.participants[partnerName].onnegotiationneeded = async () => {
         let offer = await this.participants[partnerName].createOffer();
-        console.log('offer', offer);
         await this.participants[partnerName].setLocalDescription(offer);
 
         socket.emit('sdp', {
@@ -165,33 +166,34 @@ export class ConferenceRoomComponent implements OnInit {
     };
 
 
-    //add
+    // add
     this.participants[partnerName].ontrack = (e) => {
       let str = e.streams[0];
       if (document.getElementById(`${partnerName}-video`)) {
-        document.getElementById( `${ partnerName }-video` ).setAttribute('srcObject', str);
+        document.getElementById(`${partnerName}-video`).setAttribute('srcObject', str);
       } else {
-        //video elem
+        // video elem
         let newVid = document.createElement('video');
         newVid.id = `${partnerName}-video`;
         newVid.srcObject = str;
         newVid.autoplay = true;
         newVid.className = 'remote-video';
+        newVid.style = 'height: 100px;';
 
-        //video controls elements
+        // video controls elements
         let controlDiv = document.createElement('div');
         controlDiv.className = 'remote-video-controls';
         controlDiv.innerHTML = `<i class="fa fa-microphone text-white pr-3 mute-remote-mic" title="Mute"></i>
                         <i class="fa fa-expand text-white expand-remote-video" title="Expand"></i>`;
 
-        //create a new div for card
+        // create a new div for card
         let cardDiv = document.createElement('div');
         cardDiv.className = 'card card-sm';
         cardDiv.id = partnerName;
         cardDiv.appendChild(newVid);
         cardDiv.appendChild(controlDiv);
 
-        //put div in main-section elem
+        // put div in main-section elem
         document.getElementById('videos').appendChild(cardDiv);
 
         that.adjustVideoElemSize();
@@ -216,7 +218,6 @@ export class ConferenceRoomComponent implements OnInit {
     this.participants[partnerName].onsignalingstatechange = (d) => {
       switch (this.participants[partnerName].signalingState) {
         case 'closed':
-          console.log("Signalling state is 'closed'");
           that.closeVideo(partnerName);
           break;
       }
@@ -290,54 +291,11 @@ export class ConferenceRoomComponent implements OnInit {
   }
 
   setLocalStream(stream, mirrorMode = true) {
-    console.log('in setLocalStream', mirrorMode);
-    console.log('in setLocalStream', stream);
     const localVidElem = document.getElementById('local');
 
-    localVidElem.setAttribute('srcObject',stream);
+    localVidElem.setAttribute('srcObject', stream);
 
     mirrorMode ? localVidElem.classList.add('mirror-mode') : localVidElem.classList.remove('mirror-mode');
-  }
-
-  addChat(data, senderType) {
-    let chatMsgDiv = document.querySelector('#chat-messages');
-    let contentAlign = 'justify-content-end';
-    let senderName = 'You';
-    let msgBg = 'bg-white';
-
-    if (senderType === 'remote') {
-      contentAlign = 'justify-content-start';
-      senderName = data.sender;
-      msgBg = '';
-
-      this.toggleChatNotificationBadge();
-    }
-
-    let infoDiv = document.createElement('div');
-    infoDiv.className = 'sender-info';
-    infoDiv.innerHTML = `${senderName} - ${moment().format('Do MMMM, YYYY h:mm a')}`;
-
-    let colDiv = document.createElement('div');
-    colDiv.className = `col-10 card chat-card msg ${msgBg}`;
-    colDiv.innerHTML = xssFilters.inHTMLData(data.msg).autoLink({target: "_blank", rel: "nofollow"});
-
-    let rowDiv = document.createElement('div');
-    rowDiv.className = `row ${contentAlign} mb-2`;
-
-
-    colDiv.appendChild(infoDiv);
-    rowDiv.appendChild(colDiv);
-
-    chatMsgDiv.appendChild(rowDiv);
-
-    /**
-     * Move focus to the newly added message but only if:
-     * 1. Page has focus
-     * 2. User has not moved scrollbar upward. This is to prevent moving the scroll position if user is reading previous messages.
-     */
-    if (this.pageHasFocus) {
-      rowDiv.scrollIntoView();
-    }
   }
 
   pageHasFocus() {
@@ -352,4 +310,431 @@ export class ConferenceRoomComponent implements OnInit {
     }
   }
 
+  // socket connecting methods end
+
+  maximiseStream(e) {
+    const elem = e.target.parentElement.previousElementSibling;
+
+    return elem.requestFullscreen() || elem.mozRequestFullScreen() || elem.webkitRequestFullscreen() || elem.msRequestFullscreen();
+  }
+
+  singleStreamToggleMute(e) {
+    if (e.target.classList.contains('fa-microphone')) {
+      e.target.parentElement.previousElementSibling.muted = true;
+      e.target.classList.add('fa-microphone-slash');
+      e.target.classList.remove('fa-microphone');
+    } else {
+      e.target.parentElement.previousElementSibling.muted = false;
+      e.target.classList.add('fa-microphone');
+      e.target.classList.remove('fa-microphone-slash');
+    }
+  }
+
+  toggleModal(id, show) {
+    const el = document.getElementById(id);
+
+    if (show) {
+      el.style.display = 'block';
+      el.removeAttribute('aria-hidden');
+    } else {
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  replaceTrack(stream, recipientPeer) {
+    const sender = recipientPeer.getSenders ? recipientPeer.getSenders().find(s => s.track && s.track.kind === stream.kind) : false;
+
+    sender ? sender.replaceTrack(stream) : '';
+  }
+
+  broadcastNewTracks(stream, type, mirrorMode = true) {
+    this.setLocalStream(stream, mirrorMode);
+    const track = (type === 'audio') ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
+
+    (this.participants).forEach((p) => {
+      const pName = this.participants[p];
+
+      if (typeof this.participants[pName] === 'object') {
+        this.replaceTrack(track, this.participants[pName]);
+      }
+    });
+  }
+
+  toggleVideoBtnDisabled(disabled) {
+    document.getElementById('toggle-video').disabled = disabled;
+  }
+
+  toggleShareIcons(share) {
+    const shareIconElem = document.querySelector('#share-screen');
+
+    if (share) {
+      shareIconElem.setAttribute('title', 'Stop sharing screen');
+      shareIconElem.children[0].classList.add('text-primary');
+      shareIconElem.children[0].classList.remove('text-white');
+    } else {
+      shareIconElem.setAttribute('title', 'Share screen');
+      shareIconElem.children[0].classList.add('text-white');
+      shareIconElem.children[0].classList.remove('text-primary');
+    }
+  }
+
+  stopSharingScreen() {
+    // enable video toggle btn
+    this.toggleVideoBtnDisabled(false);
+
+    return new Promise((res, rej) => {
+      this.screen.getTracks().length ? this.screen.getTracks().forEach(track => track.stop()) : '';
+
+      res();
+    }).then(() => {
+      this.toggleShareIcons(false);
+      this.broadcastNewTracks(this.screen, 'video');
+    }).catch((e) => {
+      console.error(e);
+    });
+  }
+
+  helperShareScreen() {
+    if (this.userMediaAvailable()) {
+      return navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'always'
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        }
+      });
+    } else {
+      throw new Error('User media not available');
+    }
+  }
+
+  shareScreen() {
+    this.helperShareScreen().then((stream) => {
+      this.toggleShareIcons(true);
+
+      // disable the video toggle btns while sharing screen. This is to ensure clicking on the btn does not interfere with the screen sharing
+      // It will be enabled was user stopped sharing screen
+      this.toggleVideoBtnDisabled(true);
+
+      // save my screen stream
+      this.screen = stream;
+
+      // share the new stream with all partners
+      this.broadcastNewTracks(stream, 'video', false);
+
+      // When the stop sharing button shown by the browser is clicked
+      this.screen.getVideoTracks()[0].addEventListener('ended', () => {
+        this.stopSharingScreen();
+      });
+    }).catch((e) => {
+      console.error(e);
+    });
+  }
+
+  toggleRecordingIcons(isRecording) {
+    const e = document.getElementById('record');
+
+    if (isRecording) {
+      e.setAttribute('title', 'Stop recording');
+      e.children[0].classList.add('text-danger');
+      e.children[0].classList.remove('text-white');
+    } else {
+      e.setAttribute('title', 'Record');
+      e.children[0].classList.add('text-white');
+      e.children[0].classList.remove('text-danger');
+    }
+  }
+
+  saveRecordedStream(stream, user) {
+    const blob = new Blob(stream, {type: 'video/webm'});
+
+    const file = new File([blob], `${user}-${moment().unix()}-record.webm`);
+
+    saveAs(file);
+  }
+
+  startRecording(stream) {
+    const that = this;
+    this.mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9'
+    });
+
+    this.mediaRecorder.start(1000);
+    this.toggleRecordingIcons(true);
+
+    this.mediaRecorder.ondataavailable = function (e) {
+      that.recordedStream.push(e.data);
+    };
+
+    this.mediaRecorder.onstop = function () {
+      that.toggleRecordingIcons(false);
+
+      that.saveRecordedStream(that.recordedStream, that.username);
+
+      setTimeout(() => {
+        that.recordedStream = [];
+      }, 3000);
+    };
+
+    this.mediaRecorder.onerror = function (e) {
+      console.error(e);
+    };
+  }
+
+  addChat( data, senderType ) {
+    const chatMsgDiv = document.querySelector( '#chat-messages' );
+    let contentAlign = 'justify-content-end';
+    let senderName = 'You';
+    let msgBg = 'bg-white';
+
+    if ( senderType === 'remote' ) {
+      contentAlign = 'justify-content-start';
+      senderName = data.sender;
+      msgBg = '';
+
+      this.toggleChatNotificationBadge();
+    }
+
+    const infoDiv = document.createElement( 'div' );
+    infoDiv.className = 'sender-info';
+    infoDiv.innerHTML = `${ senderName } - ${ moment().format( 'Do MMMM, YYYY h:mm a' ) }`;
+
+    const colDiv = document.createElement( 'div' );
+    colDiv.className = `col-10 card chat-card msg ${ msgBg }`;
+    colDiv.innerHTML = xssFilters.inHTMLData( data.msg ).autoLink( { target: "_blank", rel: "nofollow"});
+
+    const rowDiv = document.createElement( 'div' );
+    rowDiv.className = `row ${ contentAlign } mb-2`;
+
+
+    colDiv.appendChild( infoDiv );
+    rowDiv.appendChild( colDiv );
+
+    chatMsgDiv.appendChild( rowDiv );
+
+    /**
+     * Move focus to the newly added message but only if:
+     * 1. Page has focus
+     * 2. User has not moved scrollbar upward. This is to prevent moving the scroll position if user is reading previous messages.
+     */
+    if ( this.pageHasFocus ) {
+      rowDiv.scrollIntoView();
+    }
+  }
+
+  sendMsg( msg ) {
+    const data = {
+      room: this.room,
+      msg: msg,
+      sender: this.username
+    };
+
+    // emit chat message
+    this.localSocket.emit( 'chat', data );
+
+    // add localchat
+    this.addChat( data, 'local' );
+  }
+
+  registerClickMethods() {
+    document.querySelector('#toggle-chat-pane').addEventListener('click', (e) => {
+      const chatElem = document.querySelector('#chat-pane');
+      const mainSecElem = document.querySelector('#main-section');
+
+      if (chatElem.classList.contains('chat-opened')) {
+        chatElem.setAttribute('hidden', 'true');
+        mainSecElem.classList.remove('col-md-9');
+        mainSecElem.classList.add('col-md-12');
+        chatElem.classList.remove('chat-opened');
+      } else {
+        chatElem.attributes.removeNamedItem('hidden');
+        mainSecElem.classList.remove('col-md-12');
+        mainSecElem.classList.add('col-md-9');
+        chatElem.classList.add('chat-opened');
+      }
+
+      // remove the 'New' badge on chat icon (if any) once chat is opened.
+      setTimeout(() => {
+        if (document.querySelector('#chat-pane').classList.contains('chat-opened')) {
+          this.toggleChatNotificationBadge();
+        }
+      }, 300);
+    });
+
+    document.getElementById( 'chat-input' ).addEventListener( 'keypress', ( e ) => {
+      if ( e.which === 13 && ( e.target.value.trim() ) ) {
+        e.preventDefault();
+
+        this.sendMsg( e.target.value );
+
+        setTimeout( () => {
+          e.target.value = '';
+        }, 50 );
+      }
+    } );
+
+    // When the video frame is clicked. This will enable picture-in-picture
+    document.getElementById('local').addEventListener('click', async () => {
+      try {
+        // If there is no element in Picture-in-Picture yet, request for it
+        if (document.getElementById('local') !== document.pictureInPictureElement) {
+          await document.getElementById('local').requestPictureInPicture();
+        }
+        // If Picture-in-Picture already exists, exit the mode
+        else {
+          await document.getElementById('local').exitPictureInPicture();
+        }
+
+      } catch (error) {
+        console.log(`Oh Horror! ${error}`);
+      }
+      /*if (!document.pictureInPictureElement) {
+        document.getElementById('local').requestPictureInPicture()
+          .catch(error => {
+            // Video failed to enter Picture-in-Picture mode.
+            console.error(error);
+          });
+      } else {
+        document.exitPictureInPicture()
+          .catch(error => {
+            // Video failed to leave Picture-in-Picture mode.
+            console.error(error);
+          });
+      }*/
+    });
+
+
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.classList.contains('expand-remote-video')) {
+        this.maximiseStream(e);
+      } else if (e.target && e.target.classList.contains('mute-remote-mic')) {
+        this.singleStreamToggleMute(e);
+      }
+    });
+
+
+    document.getElementById('copy-video-conf-link').addEventListener('click', (e) => {
+      console.log('document.getElementById(\'copy-video-conf-link\')', document.getElementById('copy-video-conf-link'));
+      const selBox = document.createElement('textarea');
+      selBox.style.position = 'fixed';
+      selBox.style.left = '0';
+      selBox.style.top = '0';
+      selBox.style.opacity = '0';
+      selBox.value = document.getElementById('copy-video-conf-link').value;
+      document.body.appendChild(selBox);
+      selBox.focus();
+      selBox.select();
+      document.execCommand('copy');
+      document.body.removeChild(selBox);
+    });
+
+    document.getElementById('closeModal').addEventListener('click', () => {
+      this.toggleModal('recording-options-modal', false);
+    });
+
+    document.getElementById('toggle-video').addEventListener('click', (e) => {
+      e.preventDefault();
+
+      const elem = document.getElementById('toggle-video');
+
+      if (this.localStream.getVideoTracks()[0].enabled) {
+        e.target.classList.remove('fa-video');
+        e.target.classList.add('fa-video-slash');
+        elem.setAttribute('title', 'Show Video');
+
+        this.localStream.getVideoTracks()[0].enabled = false;
+      } else {
+        e.target.classList.remove('fa-video-slash');
+        e.target.classList.add('fa-video');
+        elem.setAttribute('title', 'Hide Video');
+
+        this.localStream.getVideoTracks()[0].enabled = true;
+      }
+
+      this.broadcastNewTracks(this.localStream, 'video');
+    });
+
+    document.getElementById('toggle-mute').addEventListener('click', (e) => {
+      e.preventDefault();
+
+      const elem = document.getElementById('toggle-mute');
+
+      if (this.screen.getAudioTracks()[0].enabled) {
+        e.target.classList.remove('fa-microphone-alt');
+        e.target.classList.add('fa-microphone-alt-slash');
+        elem.setAttribute('title', 'Unmute');
+
+        this.screen.getAudioTracks()[0].enabled = false;
+      } else {
+        e.target.classList.remove('fa-microphone-alt-slash');
+        e.target.classList.add('fa-microphone-alt');
+        elem.setAttribute('title', 'Mute');
+
+        this.screen.getAudioTracks()[0].enabled = true;
+      }
+
+      this.broadcastNewTracks(this.screen, 'audio');
+    });
+
+    // When user clicks the 'Share screen' button
+    document.getElementById('share-screen').addEventListener('click', (e) => {
+      e.preventDefault();
+
+      if (this.screen && this.screen.getVideoTracks().length && this.screen.getVideoTracks()[0].readyState !== 'ended') {
+        this.stopSharingScreen();
+      } else {
+        this.shareScreen();
+      }
+    });
+
+
+    // When record button is clicked
+    document.getElementById('record').addEventListener('click', (e) => {
+      /**
+       * Ask user what they want to record.
+       * Get the stream based on selection and start recording
+       */
+      if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
+        this.toggleModal('recording-options-modal', true);
+      } else if (this.mediaRecorder.state === 'paused') {
+        this.mediaRecorder.resume();
+      } else if (this.mediaRecorder.state === 'recording') {
+        this.mediaRecorder.stop();
+      }
+    });
+
+
+    // When user choose to record screen
+    document.getElementById('record-screen').addEventListener('click', () => {
+      this.toggleModal('recording-options-modal', false);
+
+      if (this.screen && this.screen.getVideoTracks().length) {
+        this.startRecording(this.screen);
+      } else {
+        this.helperShareScreen().then((screenStream) => {
+          this.startRecording(screenStream);
+        }).catch(() => {
+        });
+      }
+    });
+
+
+    // When user choose to record own video
+    document.getElementById('record-video').addEventListener('click', () => {
+      this.toggleModal('recording-options-modal', false);
+
+      if (this.screen && this.screen.getTracks().length) {
+        this.startRecording(this.screen);
+      } else {
+        this.getUserFullMedia().then((videoStream) => {
+          this.startRecording(videoStream);
+        }).catch(() => {
+        });
+      }
+    });
+  }
 }

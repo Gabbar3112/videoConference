@@ -23,6 +23,7 @@ export class LoginComponent implements OnInit {
       const roomName = params['roomName'];
       console.log(roomName);
       if (roomName !== undefined) {
+        this.room.roomName = roomName;
         this.showRoomField = false;
       }
     });
@@ -32,6 +33,7 @@ export class LoginComponent implements OnInit {
     console.log('room', this.room);
     localStorage.setItem('userName', this.room.yourName);
     localStorage.setItem('roomName', this.room.roomName);
+    localStorage.setItem('link', document.location.protocol + '//' + document.location.hostname + ':4200/login?roomName=' + this.room.roomName);
     this.router.navigate(['/conferenceRoom']);
   }
 
