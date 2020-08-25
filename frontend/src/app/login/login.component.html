@@ -9,10 +9,23 @@
     </div>
 
     <!-- Login Form -->
-    <form>
-      <input *ngIf="showRoomField" type="text" id="room-name" required [(ngModel)]="room.roomName" class="fadeIn second" name="login" placeholder="Room Name">
-      <input type="text" id="your-name" required [(ngModel)]="room.yourName" class="fadeIn third" name="login" placeholder="Your Name">
-      <input type="submit" id="create-room" (click)="createRoom()" class="fadeIn fourth" value="Create Room">
+    <form class="form-horizontal" #f="ngForm" (ngSubmit)="f.form.valid && createRoom()" novalidate>
+      <div *ngIf="showRoomField">
+        <input type="text" id="roomName"
+               [(ngModel)]="room.roomName" #roomName="ngModel" [ngClass]="{ 'is-invalid': f.submitted && roomName.invalid }" required
+               class="fadeIn second" name="roomName" placeholder="Room Name">
+        <div class="invalid-feedback"
+             *ngIf="f.submitted && roomName?.errors.required">
+          <span>Room Name is required</span>
+        </div>
+      </div>
+      <input type="text" id="yourName" [(ngModel)]="room.yourName" #yourName="ngModel" [ngClass]="{ 'is-invalid': f.submitted && yourName.invalid }" required
+             class="fadeIn third" name="yourName" placeholder="Your Name">
+      <div class="invalid-feedback"
+           *ngIf="f.submitted && yourName?.errors.required">
+        <span>Your Name is required</span>
+      </div>
+      <button type="submit" id="create-room" class="fadeIn fourth custom-btn">Create Room</button>
     </form>
 
     <!-- Remind Passowrd -->
