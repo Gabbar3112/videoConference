@@ -4,6 +4,9 @@ import * as io from 'socket.io-client';
 import * as moment from 'moment';
 
 declare var MediaRecorder: any;
+declare var xssFilters: any;
+declare var saveAs: any;
+declare var jQuery: any;
 
 @Component({
   selector: 'app-conference-room',
@@ -625,13 +628,13 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
     document.getElementById('local').addEventListener('click', async () => {
       const video = document.getElementById('local') as HTMLElement;
       try {
-        if (!document.pictureInPictureElement) {
-          await document.getElementById('local').requestPictureInPicture();
-        }
-        else {
-          await document.exitPictureInPicture();
-        }
-
+        (async function ($) {
+          if (!$(document).pictureInPictureElement) {
+            await $(document).getElementById('local').requestPictureInPicture();
+          } else {
+            await $(document).exitPictureInPicture();
+          }
+        })
       } catch (error) {
         console.log(`Oh Horror! ${error}`);
       }
@@ -655,10 +658,10 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
     document.addEventListener('click', (e) => {
       let abc = e.target as HTMLElement;
       if (abc && abc.className.includes('expand-remote-video')) {
-      // if (e.target && e.target.classList.contains('expand-remote-video')) {
+        // if (e.target && e.target.classList.contains('expand-remote-video')) {
         this.maximiseStream(e);
       } else if (abc && abc.className.includes('mute-remote-mic')) {
-      // } else if (e.target && e.target.classList.contains('mute-remote-mic')) {
+        // } else if (e.target && e.target.classList.contains('mute-remote-mic')) {
         this.singleStreamToggleMute(e);
       }
     });
@@ -695,7 +698,7 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
       await this.broadcastNewTracks(this.myStream, 'video');
     });
 
-    document.getElementById('toggle-mute').addEventListener('click', async(e) => {
+    document.getElementById('toggle-mute').addEventListener('click', async (e) => {
       e.preventDefault();
 
       const elem = document.getElementById('toggle-mute');
