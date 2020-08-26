@@ -1,11 +1,11 @@
 <nav class="navbar fixed-top bg-info rounded-0 d-print-none">
-  <div class="text-white">Video Call</div>
+  <div class="text-white">Video Call (Room: {{roomName}})</div>
 
   <div class="pull-right room-comm">
-    <button class="btn btn-sm rounded-0 btn-no-effect" id='copy-video-conf-link' title="Hide Video" [value]="link"> Copy link to share
+    <button class="btn btn-sm rounded-0 btn-no-effect" id='copy-video-conf-link' title="Copy to Sharable Link" (click)="copyToClipboard(link)"> Copy link to share
     </button>
 
-    <button class="btn btn-sm rounded-0 btn-no-effect" id='toggle-video' title="Hide Video">
+    <button class="btn btn-sm rounded-0 btn-no-effect" id='toggle-video' [disabled]="videoToggleBtnDisable" title="Hide Video">
       <i class="fa fa-video text-white"></i>
     </button>
 
@@ -32,11 +32,11 @@
 </nav>
 <div class="container room-comm">
   <div class="row">
-    <video class="local-video mirror-mode" id='local' volume='0' autoplay muted> </video>
+    <video class="local-video mirror-mode" id='local' #local volume='0' autoplay muted> </video>
   </div>
   <div class="row">
     <div class="col-md-12 main" id='main-section'>
-      <div class="row mt-2 mb-2" id='videos'></div>
+      <div class="row mt-2 mb-2" id='videos' #videos></div>
     </div>
     <div class="col-md-3 chat-col d-print-none mb-2 bg-info" id='chat-pane' hidden>
       <div class="row">

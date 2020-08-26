@@ -1,4 +1,4 @@
-import {Component, OnInit, ViewChild} from '@angular/core';
+import {AfterViewInit, Component, ElementRef, OnInit, ViewChild} from '@angular/core';
 import {environment} from '../../environments/environment';
 import * as io from 'socket.io-client';
 import * as moment from 'moment';
@@ -10,43 +10,50 @@ declare var MediaRecorder: any;
   templateUrl: './conference-room.component.html',
   styleUrls: ['./conference-room.component.css']
 })
-export class ConferenceRoomComponent implements OnInit {
+export class ConferenceRoomComponent implements OnInit, AfterViewInit {
   @ViewChild('video') video: any;
+  @ViewChild('local') local: ElementRef;
+  @ViewChild('videos') videos: ElementRef;
 
   participants: any = [];
   recordedStream: any = [];
   myStream: any = '';
   screen: any = '';
-  localStream: any = '';
   mediaRecorder: any;
   socket;
   username: any = '';
   link = '';
-  room = '';
+  roomName = '';
   localSocket: any;
+  videoToggleBtnDisable = false;
 
   constructor() {
   }
 
   ngOnInit(): void {
     this.link = localStorage.getItem('link');
-    this.room = localStorage.getItem('roomName');
+    this.roomName = localStorage.getItem('roomName');
     this.username = localStorage.getItem('userName');
 
+    this.getAndSetUserStream();
     this.startSocket();
-    const video = document.getElementById('local');
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({video: true, audio: true})
-        .then(stream => {
-          this.localStream = stream;
-          video.srcObject = (stream);
-          video.play();
-        })
-        .catch((err) => {
-          console.log('err', err);
-        });
-    }
     this.registerClickMethods();
+  }
+
+  ngAfterViewInit() {
+    console.log('local', this.local.nativeElement.innerHTML);
+  }
+
+  getAndSetUserStream() {
+    this.getUserFullMedia().then(async (stream) => {
+      // save my stream
+      this.myStream = stream;
+      // this.localStream = stream;
+
+      await this.setLocalStream(stream);
+    }).catch((e) => {
+      console.error(`stream error: ${e}`);
+    });
   }
 
   // socket connecting methods
@@ -54,12 +61,12 @@ export class ConferenceRoomComponent implements OnInit {
     const that = this;
     this.socket = io(environment.socketUri);
     this.socket.on('connect', () => {
-      let socketId = this.socket.io.engine.id;
+      const socketId = this.socket.io.engine.id;
       this.localSocket = this.socket;
 
       this.socket.emit('subscribe', {
         room: localStorage.getItem('roomName'),
-        socketId: socketId
+        socketId
       });
 
       that.socket.on('new user', (data) => {
@@ -81,20 +88,20 @@ export class ConferenceRoomComponent implements OnInit {
         if (data.description.type === 'offer') {
           data.description ? await that.participants[data.sender].setRemoteDescription(new RTCSessionDescription(data.description)) : '';
 
-          const video = document.getElementById('local');
+          const video = document.getElementById('local') as HTMLVideoElement;
           that.getUserFullMedia().then(async (stream) => {
-            if (!document.getElementById('local').getAttribute('srcObject')) {
-              that.setLocalStream(stream);
+            if (!video.srcObject) {
+              await that.setLocalStream(stream);
             }
 
-            //save my stream
+            // save my stream
             that.myStream = stream;
 
             stream.getTracks().forEach((track) => {
               that.participants[data.sender].addTrack(track, stream);
             });
 
-            let answer = await that.participants[data.sender].createAnswer();
+            const answer = await that.participants[data.sender].createAnswer();
 
             await that.participants[data.sender].setLocalDescription(answer);
 
@@ -123,32 +130,32 @@ export class ConferenceRoomComponent implements OnInit {
 
     if (this.screen && this.screen.getTracks().length) {
       this.screen.getTracks().forEach((track) => {
-        this.participants[partnerName].addTrack(track, this.screen);// should trigger negotiationneeded event
+        this.participants[partnerName].addTrack(track, this.screen); // should trigger negotiationneeded event
       });
     } else if (this.myStream) {
       this.myStream.getTracks().forEach((track) => {
-        this.participants[partnerName].addTrack(track, this.myStream);//should trigger negotiationneeded event
+        this.participants[partnerName].addTrack(track, this.myStream); // should trigger negotiationneeded event
       });
     } else {
-      that.getUserFullMedia().then((stream) => {
-        //save my stream
+      that.getUserFullMedia().then(async (stream) => {
+        // save my stream
         this.myStream = stream;
 
         stream.getTracks().forEach((track) => {
-          this.participants[partnerName].addTrack(track, stream);//should trigger negotiationneeded event
+          this.participants[partnerName].addTrack(track, stream); // should trigger negotiationneeded event
         });
 
-        that.setLocalStream(stream);
+        await that.setLocalStream(stream);
       }).catch((e) => {
         console.error(`stream error: ${e}`);
       });
     }
 
 
-    //create offer
+    // create offer
     if (createOffer) {
       this.participants[partnerName].onnegotiationneeded = async () => {
-        let offer = await this.participants[partnerName].createOffer();
+        const offer = await this.participants[partnerName].createOffer();
         await this.participants[partnerName].setLocalDescription(offer);
 
         socket.emit('sdp', {
@@ -160,41 +167,43 @@ export class ConferenceRoomComponent implements OnInit {
     }
 
 
-    //send ice candidate to partnerNames
+    // send ice candidate to partnerNames
     this.participants[partnerName].onicecandidate = ({candidate}) => {
-      socket.emit('ice candidates', {candidate: candidate, to: partnerName, sender: socketId});
+      socket.emit('ice candidates', {candidate, to: partnerName, sender: socketId});
     };
 
 
     // add
     this.participants[partnerName].ontrack = (e) => {
-      let str = e.streams[0];
+      const str = e.streams[0];
       if (document.getElementById(`${partnerName}-video`)) {
         document.getElementById(`${partnerName}-video`).setAttribute('srcObject', str);
       } else {
         // video elem
-        let newVid = document.createElement('video');
+        const newVid = document.createElement('video');
         newVid.id = `${partnerName}-video`;
         newVid.srcObject = str;
         newVid.autoplay = true;
         newVid.className = 'remote-video';
-        newVid.style = 'height: 100px;';
+        newVid.style.height = '100px';
 
         // video controls elements
-        let controlDiv = document.createElement('div');
+        const controlDiv = document.createElement('div');
         controlDiv.className = 'remote-video-controls';
         controlDiv.innerHTML = `<i class="fa fa-microphone text-white pr-3 mute-remote-mic" title="Mute"></i>
                         <i class="fa fa-expand text-white expand-remote-video" title="Expand"></i>`;
 
         // create a new div for card
-        let cardDiv = document.createElement('div');
+        const cardDiv = document.createElement('div');
         cardDiv.className = 'card card-sm';
         cardDiv.id = partnerName;
         cardDiv.appendChild(newVid);
         cardDiv.appendChild(controlDiv);
 
         // put div in main-section elem
-        document.getElementById('videos').appendChild(cardDiv);
+        // document.getElementById('videos').appendChild(cardDiv);
+        let video = this.videos.nativeElement;
+        video.appendChild(cardDiv);
 
         that.adjustVideoElemSize();
       }
@@ -225,10 +234,10 @@ export class ConferenceRoomComponent implements OnInit {
   }
 
   adjustVideoElemSize() {
-    let elem = document.getElementsByClassName('card');
-    let totalRemoteVideosDesktop = elem.length;
-    let newWidth = totalRemoteVideosDesktop <= 2 ? '50%' : (
-      totalRemoteVideosDesktop == 3 ? '33.33%' : (
+    const elem = document.getElementsByClassName('card');
+    const totalRemoteVideosDesktop = elem.length;
+    const newWidth = totalRemoteVideosDesktop <= 2 ? '50%' : (
+      totalRemoteVideosDesktop === 3 ? '33.33%' : (
         totalRemoteVideosDesktop <= 8 ? '25%' : (
           totalRemoteVideosDesktop <= 15 ? '20%' : (
             totalRemoteVideosDesktop <= 18 ? '16%' : (
@@ -258,14 +267,14 @@ export class ConferenceRoomComponent implements OnInit {
     return {
       iceServers: [
         {
-          urls: ["stun:eu-turn4.xirsys.com"]
+          urls: ['stun:eu-turn4.xirsys.com']
         },
         {
-          username: "ml0jh0qMKZKd9P_9C0UIBY2G0nSQMCFBUXGlk6IXDJf8G2uiCymg9WwbEJTMwVeiAAAAAF2__hNSaW5vbGVl",
-          credential: "4dd454a6-feee-11e9-b185-6adcafebbb45",
+          username: 'ml0jh0qMKZKd9P_9C0UIBY2G0nSQMCFBUXGlk6IXDJf8G2uiCymg9WwbEJTMwVeiAAAAAF2__hNSaW5vbGVl',
+          credential: '4dd454a6-feee-11e9-b185-6adcafebbb45',
           urls: [
-            "turn:eu-turn4.xirsys.com:80?transport=udp",
-            "turn:eu-turn4.xirsys.com:3478?transport=tcp"
+            'turn:eu-turn4.xirsys.com:80?transport=udp',
+            'turn:eu-turn4.xirsys.com:3478?transport=tcp'
           ]
         }
       ]
@@ -290,16 +299,19 @@ export class ConferenceRoomComponent implements OnInit {
     }
   }
 
-  setLocalStream(stream, mirrorMode = true) {
-    const localVidElem = document.getElementById('local');
+  async setLocalStream(stream, mirrorMode = true) {
+    // const localVidElem = this.local.nativeElement;
+    const localVidElem = document.getElementById('local') as HTMLVideoElement;
 
-    localVidElem.setAttribute('srcObject', stream);
+    localVidElem.srcObject = (stream);
+    await localVidElem.play();
 
     mirrorMode ? localVidElem.classList.add('mirror-mode') : localVidElem.classList.remove('mirror-mode');
   }
 
   pageHasFocus() {
-    return !(document.hidden || document.onfocusout || window.onpagehide || window.onblur);
+    // return !(document.hidden || document.onfocusout || document.onmouseout || window.onpagehide || window.onblur);
+    return !(document.hidden || document.onmouseout || window.onpagehide || window.onblur);
   }
 
   toggleChatNotificationBadge() {
@@ -348,8 +360,8 @@ export class ConferenceRoomComponent implements OnInit {
     sender ? sender.replaceTrack(stream) : '';
   }
 
-  broadcastNewTracks(stream, type, mirrorMode = true) {
-    this.setLocalStream(stream, mirrorMode);
+  async broadcastNewTracks(stream, type, mirrorMode = true) {
+    await this.setLocalStream(stream, mirrorMode);
     const track = (type === 'audio') ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
 
     (this.participants).forEach((p) => {
@@ -362,7 +374,8 @@ export class ConferenceRoomComponent implements OnInit {
   }
 
   toggleVideoBtnDisabled(disabled) {
-    document.getElementById('toggle-video').disabled = disabled;
+    // document.getElementById('toggle-video').disabled = disabled;
+    this.videoToggleBtnDisable = disabled;
   }
 
   toggleShareIcons(share) {
@@ -387,9 +400,9 @@ export class ConferenceRoomComponent implements OnInit {
       this.screen.getTracks().length ? this.screen.getTracks().forEach(track => track.stop()) : '';
 
       res();
-    }).then(() => {
+    }).then(async () => {
       this.toggleShareIcons(false);
-      this.broadcastNewTracks(this.screen, 'video');
+      await this.broadcastNewTracks(this.screen, 'video');
     }).catch((e) => {
       console.error(e);
     });
@@ -397,7 +410,8 @@ export class ConferenceRoomComponent implements OnInit {
 
   helperShareScreen() {
     if (this.userMediaAvailable()) {
-      return navigator.mediaDevices.getDisplayMedia({
+      const mediaDevices = navigator.mediaDevices as any;
+      return mediaDevices.getDisplayMedia({
         video: {
           cursor: 'always'
         },
@@ -407,13 +421,24 @@ export class ConferenceRoomComponent implements OnInit {
           sampleRate: 44100
         }
       });
+
+      /*return navigator.mediaDevices.getDisplayMedia({
+        video: {
+          cursor: 'always'
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        }
+      });*/
     } else {
       throw new Error('User media not available');
     }
   }
 
   shareScreen() {
-    this.helperShareScreen().then((stream) => {
+    this.helperShareScreen().then(async (stream) => {
       this.toggleShareIcons(true);
 
       // disable the video toggle btns while sharing screen. This is to ensure clicking on the btn does not interfere with the screen sharing
@@ -424,7 +449,7 @@ export class ConferenceRoomComponent implements OnInit {
       this.screen = stream;
 
       // share the new stream with all partners
-      this.broadcastNewTracks(stream, 'video', false);
+      await this.broadcastNewTracks(stream, 'video', false);
 
       // When the stop sharing button shown by the browser is clicked
       this.screen.getVideoTracks()[0].addEventListener('ended', () => {
@@ -485,13 +510,13 @@ export class ConferenceRoomComponent implements OnInit {
     };
   }
 
-  addChat( data, senderType ) {
-    const chatMsgDiv = document.querySelector( '#chat-messages' );
+  addChat(data, senderType) {
+    const chatMsgDiv = document.querySelector('#chat-messages');
     let contentAlign = 'justify-content-end';
     let senderName = 'You';
     let msgBg = 'bg-white';
 
-    if ( senderType === 'remote' ) {
+    if (senderType === 'remote') {
       contentAlign = 'justify-content-start';
       senderName = data.sender;
       msgBg = '';
@@ -499,45 +524,60 @@ export class ConferenceRoomComponent implements OnInit {
       this.toggleChatNotificationBadge();
     }
 
-    const infoDiv = document.createElement( 'div' );
+    const infoDiv = document.createElement('div');
     infoDiv.className = 'sender-info';
-    infoDiv.innerHTML = `${ senderName } - ${ moment().format( 'Do MMMM, YYYY h:mm a' ) }`;
+    infoDiv.innerHTML = `${senderName} - ${moment().format('Do MMMM, YYYY h:mm a')}`;
 
-    const colDiv = document.createElement( 'div' );
-    colDiv.className = `col-10 card chat-card msg ${ msgBg }`;
-    colDiv.innerHTML = xssFilters.inHTMLData( data.msg ).autoLink( { target: "_blank", rel: "nofollow"});
+    const colDiv = document.createElement('div');
+    colDiv.className = `col-10 card chat-card msg ${msgBg}`;
+    colDiv.innerHTML = xssFilters.inHTMLData(data.msg).autoLink({target: '_blank', rel: 'nofollow'});
 
-    const rowDiv = document.createElement( 'div' );
-    rowDiv.className = `row ${ contentAlign } mb-2`;
+    const rowDiv = document.createElement('div');
+    rowDiv.className = `row ${contentAlign} mb-2`;
 
 
-    colDiv.appendChild( infoDiv );
-    rowDiv.appendChild( colDiv );
+    colDiv.appendChild(infoDiv);
+    rowDiv.appendChild(colDiv);
 
-    chatMsgDiv.appendChild( rowDiv );
+    chatMsgDiv.appendChild(rowDiv);
 
     /**
      * Move focus to the newly added message but only if:
      * 1. Page has focus
      * 2. User has not moved scrollbar upward. This is to prevent moving the scroll position if user is reading previous messages.
      */
-    if ( this.pageHasFocus ) {
+    if (this.pageHasFocus) {
       rowDiv.scrollIntoView();
     }
   }
 
-  sendMsg( msg ) {
+  sendMsg(msg) {
     const data = {
-      room: this.room,
-      msg: msg,
+      room: this.roomName,
+      msg,
       sender: this.username
     };
 
     // emit chat message
-    this.localSocket.emit( 'chat', data );
+    this.localSocket.emit('chat', data);
 
     // add localchat
-    this.addChat( data, 'local' );
+    this.addChat(data, 'local');
+  }
+
+  copyToClipboard(val) {
+    let selBox = document.createElement('textarea');
+    selBox.style.position = 'fixed';
+    selBox.style.left = '0';
+    selBox.style.top = '0';
+    selBox.style.opacity = '0';
+    selBox.value = val;
+    document.body.appendChild(selBox);
+    selBox.focus();
+    selBox.select();
+    document.execCommand('copy');
+    document.body.removeChild(selBox);
+    // this.toaster('success', 'Success!', 'Link copied to clipboard.');
   }
 
   registerClickMethods() {
@@ -565,33 +605,37 @@ export class ConferenceRoomComponent implements OnInit {
       }, 300);
     });
 
-    document.getElementById( 'chat-input' ).addEventListener( 'keypress', ( e ) => {
-      if ( e.which === 13 && ( e.target.value.trim() ) ) {
+    document.getElementById('chat-input').addEventListener('keypress', (e) => {
+      let text = e.target as HTMLTextAreaElement;
+      // if (e.which === 13 && (e.target.value.trim())) {
+      if (e.which === 13 && (text.value.trim())) {
         e.preventDefault();
 
-        this.sendMsg( e.target.value );
+        // this.sendMsg(e.target.value);
+        this.sendMsg(text.value);
 
-        setTimeout( () => {
-          e.target.value = '';
-        }, 50 );
+        setTimeout(() => {
+          // e.target.value = '';
+          text.value = '';
+        }, 50);
       }
-    } );
+    });
 
     // When the video frame is clicked. This will enable picture-in-picture
     document.getElementById('local').addEventListener('click', async () => {
+      const video = document.getElementById('local') as HTMLElement;
       try {
-        // If there is no element in Picture-in-Picture yet, request for it
-        if (document.getElementById('local') !== document.pictureInPictureElement) {
+        if (!document.pictureInPictureElement) {
           await document.getElementById('local').requestPictureInPicture();
         }
-        // If Picture-in-Picture already exists, exit the mode
         else {
-          await document.getElementById('local').exitPictureInPicture();
+          await document.exitPictureInPicture();
         }
 
       } catch (error) {
         console.log(`Oh Horror! ${error}`);
       }
+
       /*if (!document.pictureInPictureElement) {
         document.getElementById('local').requestPictureInPicture()
           .catch(error => {
@@ -609,75 +653,76 @@ export class ConferenceRoomComponent implements OnInit {
 
 
     document.addEventListener('click', (e) => {
-      if (e.target && e.target.classList.contains('expand-remote-video')) {
+      let abc = e.target as HTMLElement;
+      if (abc && abc.className.includes('expand-remote-video')) {
+      // if (e.target && e.target.classList.contains('expand-remote-video')) {
         this.maximiseStream(e);
-      } else if (e.target && e.target.classList.contains('mute-remote-mic')) {
+      } else if (abc && abc.className.includes('mute-remote-mic')) {
+      // } else if (e.target && e.target.classList.contains('mute-remote-mic')) {
         this.singleStreamToggleMute(e);
       }
-    });
-
-
-    document.getElementById('copy-video-conf-link').addEventListener('click', (e) => {
-      console.log('document.getElementById(\'copy-video-conf-link\')', document.getElementById('copy-video-conf-link'));
-      const selBox = document.createElement('textarea');
-      selBox.style.position = 'fixed';
-      selBox.style.left = '0';
-      selBox.style.top = '0';
-      selBox.style.opacity = '0';
-      selBox.value = document.getElementById('copy-video-conf-link').value;
-      document.body.appendChild(selBox);
-      selBox.focus();
-      selBox.select();
-      document.execCommand('copy');
-      document.body.removeChild(selBox);
     });
 
     document.getElementById('closeModal').addEventListener('click', () => {
       this.toggleModal('recording-options-modal', false);
     });
 
-    document.getElementById('toggle-video').addEventListener('click', (e) => {
+    document.getElementById('toggle-video').addEventListener('click', async (e) => {
       e.preventDefault();
 
       const elem = document.getElementById('toggle-video');
 
-      if (this.localStream.getVideoTracks()[0].enabled) {
-        e.target.classList.remove('fa-video');
-        e.target.classList.add('fa-video-slash');
+      if (this.myStream.getVideoTracks()[0].enabled) {
+        let abc = e.target as HTMLTextAreaElement;
+        abc.classList.remove('fa-video');
+        // e.target.classList.remove('fa-video');
+        abc.classList.add('fa-video-slash');
+        // e.target.classList.add('fa-video-slash');
         elem.setAttribute('title', 'Show Video');
 
-        this.localStream.getVideoTracks()[0].enabled = false;
+        this.myStream.getVideoTracks()[0].enabled = false;
       } else {
-        e.target.classList.remove('fa-video-slash');
-        e.target.classList.add('fa-video');
+        let abc = e.target as HTMLElement;
+        abc.classList.remove('fa-video-slash');
+        // e.target.classList.remove('fa-video-slash');
+        abc.classList.add('fa-video');
+        // e.target.classList.add('fa-video');
         elem.setAttribute('title', 'Hide Video');
 
-        this.localStream.getVideoTracks()[0].enabled = true;
+        this.myStream.getVideoTracks()[0].enabled = true;
       }
 
-      this.broadcastNewTracks(this.localStream, 'video');
+      await this.broadcastNewTracks(this.myStream, 'video');
     });
 
-    document.getElementById('toggle-mute').addEventListener('click', (e) => {
+    document.getElementById('toggle-mute').addEventListener('click', async(e) => {
       e.preventDefault();
 
       const elem = document.getElementById('toggle-mute');
 
-      if (this.screen.getAudioTracks()[0].enabled) {
-        e.target.classList.remove('fa-microphone-alt');
-        e.target.classList.add('fa-microphone-alt-slash');
+      if (this.myStream.getAudioTracks()[0].enabled) {
+        let abc = e.target as HTMLElement;
+        // abc.className.replace('fa-microphone-alt', 'fa-microphone-alt-slash')
+        abc.classList.remove('fa-microphone-alt');
+        // e.target.classList.remove('fa-microphone-alt');
+        abc.classList.add('fa-microphone-alt-slash');
+        // e.target.classList.add('fa-microphone-alt-slash');
         elem.setAttribute('title', 'Unmute');
 
-        this.screen.getAudioTracks()[0].enabled = false;
+        this.myStream.getAudioTracks()[0].enabled = false;
       } else {
-        e.target.classList.remove('fa-microphone-alt-slash');
-        e.target.classList.add('fa-microphone-alt');
+        let abc = e.target as HTMLElement;
+        // abc.className.replace('fa-microphone-alt-slash', 'fa-microphone-alt')
+        // e.target.classList.remove('fa-microphone-alt-slash');
+        abc.classList.remove('fa-microphone-alt-slash');
+        // e.target.classList.add('fa-microphone-alt');
+        abc.classList.add('fa-microphone-alt');
         elem.setAttribute('title', 'Mute');
 
-        this.screen.getAudioTracks()[0].enabled = true;
+        this.myStream.getAudioTracks()[0].enabled = true;
       }
 
-      this.broadcastNewTracks(this.screen, 'audio');
+      await this.broadcastNewTracks(this.myStream, 'audio');
     });
 
     // When user clicks the 'Share screen' button
