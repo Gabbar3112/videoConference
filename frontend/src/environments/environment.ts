@@ -4,7 +4,8 @@
 
 export const environment = {
   production: false,
-  socketUri : "http://localhost:3002/stream",
+  // socketUri : "http://localhost:3002/stream",
+  socketUri : "https://videoconferenceindia.herokuapp.com/stream",
 };
 
 /*

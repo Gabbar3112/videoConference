@@ -64,23 +64,23 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
     const that = this;
     this.socket = io(environment.socketUri);
     this.socket.on('connect', () => {
-      const socketId = this.socket.io.engine.id;
+      const masterSocketId = this.socket.io.engine.id;
       this.localSocket = this.socket;
 
       this.socket.emit('subscribe', {
         room: localStorage.getItem('roomName'),
-        socketId
+        socketId: masterSocketId
       });
 
       that.socket.on('new user', (data) => {
-        that.socket.emit('newUserStart', {to: data.socketId, sender: socketId});
+        that.socket.emit('newUserStart', {to: data.socketId, sender: masterSocketId});
         that.participants.push(data.socketId);
-        that.init(true, data.socketId, that.socket, socketId);
+        that.init(true, data.socketId, that.socket, masterSocketId);
       });
 
       that.socket.on('newUserStart', (data) => {
         that.participants.push(data.sender);
-        that.init(false, data.sender, that.socket, socketId);
+        that.init(false, data.sender, that.socket, masterSocketId);
       });
 
       that.socket.on('ice candidates', async (data) => {
@@ -111,7 +111,7 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
             that.socket.emit('sdp', {
               description: that.participants[data.sender].localDescription,
               to: data.sender,
-              sender: socketId
+              sender: masterSocketId
             });
           }).catch((e) => {
             console.error(e);
@@ -369,9 +369,8 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
 
     (this.participants).forEach((p) => {
       const pName = this.participants[p];
-
-      if (typeof this.participants[pName] === 'object') {
-        this.replaceTrack(track, this.participants[pName]);
+      if (typeof pName === 'object') {
+        this.replaceTrack(track, pName);
       }
     });
   }
@@ -396,16 +395,17 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
   }
 
   stopSharingScreen() {
+    console.log('stopSharingScreen');
     // enable video toggle btn
     this.toggleVideoBtnDisabled(false);
 
     return new Promise((res, rej) => {
       this.screen.getTracks().length ? this.screen.getTracks().forEach(track => track.stop()) : '';
-
       res();
     }).then(async () => {
       this.toggleShareIcons(false);
-      await this.broadcastNewTracks(this.screen, 'video');
+      // await this.broadcastNewTracks(this.screen, 'video');
+      await this.getAndSetUserStream();
     }).catch((e) => {
       console.error(e);
     });
@@ -636,22 +636,8 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
           }
         })
       } catch (error) {
-        console.log(`Oh Horror! ${error}`);
+        console.error(`Oh Horror! ${error}`);
       }
-
-      /*if (!document.pictureInPictureElement) {
-        document.getElementById('local').requestPictureInPicture()
-          .catch(error => {
-            // Video failed to enter Picture-in-Picture mode.
-            console.error(error);
-          });
-      } else {
-        document.exitPictureInPicture()
-          .catch(error => {
-            // Video failed to leave Picture-in-Picture mode.
-            console.error(error);
-          });
-      }*/
     });
 
 
@@ -731,9 +717,8 @@ export class ConferenceRoomComponent implements OnInit, AfterViewInit {
     // When user clicks the 'Share screen' button
     document.getElementById('share-screen').addEventListener('click', (e) => {
       e.preventDefault();
-
       if (this.screen && this.screen.getVideoTracks().length && this.screen.getVideoTracks()[0].readyState !== 'ended') {
-        this.stopSharingScreen();
+       this.stopSharingScreen();
       } else {
         this.shareScreen();
       }
